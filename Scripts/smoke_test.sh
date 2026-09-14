@@ -7,6 +7,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+if [ "${VERBOSE:-0}" = "1" ]; then set -x; fi
+
 BUNDLE_ID="com.example.tinyfarm"
 APP="build/TinyFarm.app"
 OUT="artifacts"
@@ -20,22 +22,28 @@ UDID="$(xcrun simctl list devices available | grep -E 'iPhone' | head -1 \
 [ -n "$UDID" ] || { echo "no iPhone simulator available"; exit 1; }
 echo "    UDID=$UDID"
 
+xcrun simctl list devices | grep -F "$UDID" || true
+
 echo "==> Booting"
 xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b
 
 echo "==> Installing and launching"
 xcrun simctl install "$UDID" "$APP"
-xcrun simctl launch "$UDID" "$BUNDLE_ID"
+PID="$(xcrun simctl launch "$UDID" "$BUNDLE_ID" | sed -E 's/.*: ([0-9]+)/\1/')"
+echo "    pid=$PID"
 sleep 5
 
 echo "==> Capturing frames with no interaction"
 xcrun simctl io "$UDID" screenshot "$OUT/frame_a.png"
 sleep 6
 xcrun simctl io "$UDID" screenshot "$OUT/frame_b.png"
+ls -la "$OUT"
 
 A="$(shasum -a 256 "$OUT/frame_a.png" | cut -d' ' -f1)"
 B="$(shasum -a 256 "$OUT/frame_b.png" | cut -d' ' -f1)"
+echo "    frame_a=$A"
+echo "    frame_b=$B"
 if [ "$A" = "$B" ]; then
     echo "FAIL: the world did not change over 6 seconds - it should run itself"
     exit 1

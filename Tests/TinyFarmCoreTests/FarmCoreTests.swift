@@ -1,5 +1,8 @@
 import XCTest
+import Foundation
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 @testable import TinyFarmCore
 
 private let portrait = CGSize(width: 393, height: 852)   // iPhone 16

@@ -33,15 +33,35 @@ swift test              # simulation tests
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on
-`namespace-profile-mac-large`, a [Namespace](https://namespace.so) macOS runner:
+[Namespace](https://namespace.so) runners:
 
-1. **Simulation unit tests** — `swift test` over the crop, farmer, weather,
-   day/night, camera and stability suites.
-2. **Build + smoke test** — compiles the `.app`, boots a real simulator,
-   installs and launches it, then takes two screenshots six seconds apart and
-   fails if they are identical. That single assertion encodes the design goal:
-   the world has to move without anyone touching it. Screenshots are uploaded
-   as build artifacts.
+1. **Simulation unit tests** (`namespace-profile-mac-large`) — `swift test` over
+   the crop, farmer, weather, day/night, camera and stability suites.
+2. **Simulation on Linux** (`namespace-profile-default-arm64`) — the same tests
+   compiled in a container from [`Dockerfile`](Dockerfile). The core only needs
+   Foundation, so a non-Apple toolchain is a useful second opinion on the game
+   logic.
+3. **Build + smoke test** (`namespace-profile-mac-large`) — compiles the `.app`,
+   boots a real simulator, installs and launches it, then takes two screenshots
+   six seconds apart and fails if they are identical. That single assertion
+   encodes the design goal: the world has to move without anyone touching it.
+   Screenshots are uploaded as build artifacts.
+
+Two Namespace features do the heavy lifting:
+
+- **Cache volumes.** `nscloud-cache-action` with `swiftpm` and `xcode` keeps
+  `.build`, the SwiftPM caches and Xcode's DerivedData on a volume attached to
+  the runner, so nothing is uploaded or downloaded between runs. It has to run
+  *after* `actions/checkout`, which wipes the workspace.
+- **Remote builders.** The Docker job needs no `setup-buildx-action`, no QEMU
+  and no `cache-from`/`cache-to`: the build is routed to a shared remote builder
+  with persistent layer caching, and shows up with full logs in the Namespace
+  dashboard. The `Dockerfile` also mounts `/src/.build` as a build cache so
+  SwiftPM stays warm across builds.
+
+Both jobs run with `VERBOSE=1` and `set -x`, so the logs carry the toolchain,
+the hardware, cache sizes before and after, the full `swiftc` invocation, the
+simulator inventory and the screenshot hashes.
 
 ## Notes
 

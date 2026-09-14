@@ -1,5 +1,10 @@
 import Foundation
-import CoreGraphics
+#if canImport(CoreGraphics)
+import CoreGraphics   // Apple platforms
+#endif
+#if canImport(Glibc)
+import Glibc          // Linux: sin/cos/hypot; Foundation supplies CGPoint/CGSize
+#endif
 
 // MARK: - Deterministic randomness
 //

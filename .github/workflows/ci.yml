@@ -6,37 +6,137 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  VERBOSE: "1"
+
 jobs:
   unit-tests:
-    name: Simulation unit tests
+    name: Simulation unit tests (macOS)
     runs-on: namespace-profile-mac-large
     steps:
       - uses: actions/checkout@v4
 
-      - name: Toolchain
+      - name: Runner facts
         run: |
+          set -x
           sw_vers
+          uname -a
+          sysctl -n machdep.cpu.brand_string
+          echo "cpus=$(sysctl -n hw.ncpu) memory=$(( $(sysctl -n hw.memsize) / 1024 / 1024 ))MB"
           swift --version
           xcodebuild -version
+          xcode-select -p
+          df -h /
+
+      # Must come after checkout: checkout wipes the workspace, which would
+      # take the cached .build directory with it.
+      - name: Attach SwiftPM + Xcode caches
+        uses: namespacelabs/nscloud-cache-action@v1
+        with:
+          cache: |
+            swiftpm
+            xcode
+
+      - name: Cache volume before the build
+        run: |
+          set -x
+          echo "NSC_CACHE_PATH=${NSC_CACHE_PATH:-<unset>}"
+          df -h "${NSC_CACHE_PATH:-/cache}" || true
+          du -sh .build 2>/dev/null || echo "no .build yet: cold cache"
+          ls -la .build 2>/dev/null || true
 
       - name: swift test
-        run: swift test
+        run: |
+          set -x
+          time swift test --verbose
 
-  build-and-smoke:
-    name: Build app + simulator smoke test
-    runs-on: namespace-profile-mac-large
-    needs: unit-tests
+      - name: Cache volume after the build
+        run: |
+          set -x
+          du -sh .build 2>/dev/null || true
+          du -sh ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
+          find .build -name '*.o' | wc -l
+
+  linux-core:
+    name: Simulation on Linux (Docker, Namespace builders)
+    runs-on: namespace-profile-default-arm64
     steps:
       - uses: actions/checkout@v4
 
-      - name: Available simulator runtimes
-        run: xcrun simctl list runtimes
+      - name: Builder facts
+        run: |
+          set -x
+          uname -a
+          docker version
+          docker buildx ls
+          docker buildx inspect --bootstrap
+          echo "registry=${NSC_CONTAINER_REGISTRY:-<unset>}"
+
+      # No setup-buildx-action and no cache-from/cache-to: Namespace routes this
+      # to a Remote Builder that keeps a shared layer cache across runs, and the
+      # build shows up under Builds in the Namespace dashboard.
+      - name: Build and test the core on Linux
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: test
+          push: false
+          provenance: false
+          no-cache: false
+
+      - name: Builder cache usage
+        if: always()
+        run: |
+          set -x
+          docker buildx du --verbose | tail -40 || true
+
+  build-and-smoke:
+    name: Build app + simulator smoke test (macOS)
+    runs-on: namespace-profile-mac-large
+    needs: [unit-tests, linux-core]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Attach SwiftPM + Xcode caches
+        uses: namespacelabs/nscloud-cache-action@v1
+        with:
+          cache: |
+            swiftpm
+            xcode
+
+      - name: Simulator inventory
+        run: |
+          set -x
+          xcrun simctl list runtimes
+          xcrun simctl list devices available
+          xcrun simctl list devices booted
 
       - name: Build the .app bundle
-        run: ./Scripts/build_app.sh
+        run: |
+          set -x
+          time ./Scripts/build_app.sh
+
+      - name: Inspect the bundle
+        run: |
+          set -x
+          find build -type f -exec ls -la {} \;
+          file build/TinyFarm.app/TinyFarm
+          otool -L build/TinyFarm.app/TinyFarm | head -20
+          plutil -p build/TinyFarm.app/Info.plist
 
       - name: Boot a simulator and smoke test the app
-        run: ./Scripts/smoke_test.sh
+        run: |
+          set -x
+          time ./Scripts/smoke_test.sh
+
+      - name: Simulator diagnostics
+        if: always()
+        run: |
+          set -x
+          xcrun simctl list devices booted
+          ls -la artifacts/ || true
+          ls "$HOME/Library/Logs/DiagnosticReports" || echo "no crash reports"
 
       - name: Upload screenshots
         if: always()

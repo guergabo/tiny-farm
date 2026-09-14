@@ -7,6 +7,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+if [ "${VERBOSE:-0}" = "1" ]; then set -x; fi
+
 APP_NAME="TinyFarm"
 DEPLOY_TARGET="${DEPLOY_TARGET:-17.0}"
 ARCH="$(uname -m)"
@@ -19,11 +21,13 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$APP_DIR"
 
 echo "==> Compiling for ${ARCH}-apple-ios${DEPLOY_TARGET}-simulator"
+echo "    sdk=$SDK_PATH"
 xcrun --sdk iphonesimulator swiftc \
     -target "${ARCH}-apple-ios${DEPLOY_TARGET}-simulator" \
     -sdk "$SDK_PATH" \
     -parse-as-library \
     -O \
+    ${VERBOSE:+-v} \
     Sources/TinyFarmCore/FarmCore.swift \
     App/FarmApp.swift \
     -o "$APP_DIR/$APP_NAME"
