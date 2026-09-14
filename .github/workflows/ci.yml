@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    name: Simulation unit tests
+    runs-on: namespace-profile-mac-large
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          swift --version
+          xcodebuild -version
+
+      - name: swift test
+        run: swift test
+
+  build-and-smoke:
+    name: Build app + simulator smoke test
+    runs-on: namespace-profile-mac-large
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Available simulator runtimes
+        run: xcrun simctl list runtimes
+
+      - name: Build the .app bundle
+        run: ./Scripts/build_app.sh
+
+      - name: Boot a simulator and smoke test the app
+        run: ./Scripts/smoke_test.sh
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-screenshots
+          path: artifacts/
+          if-no-files-found: warn
